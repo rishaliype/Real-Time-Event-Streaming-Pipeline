@@ -1,0 +1,146 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: citystream-zookeeper
+    hostname: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 2
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: echo stat | nc localhost 2181
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - citystream
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: citystream-kafka
+    hostname: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_HEAP_OPTS: "-Xmx512M -Xms512M"
+      KAFKA_LOG_RETENTION_HOURS: 24
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: kafka-broker-api-versions --bootstrap-server localhost:9092
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - citystream
+
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: citystream-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC: city-events
+      EVENT_GENERATOR_INTERVAL: 5000
+      SERVER_PORT: 8080
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus,metrics
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - citystream
+
+  spark-master:
+      image: apache/spark:3.4.1
+      container_name: citystream-spark-master
+      hostname: spark-master
+      command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+      environment:
+        - SPARK_MODE=master
+        - SPARK_RPC_AUTHENTICATION_ENABLED=no
+        - SPARK_RPC_ENCRYPTION_ENABLED=no
+        - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+        - SPARK_SSL_ENABLED=no
+        - SPARK_MASTER_OPTS=-Dspark.deploy.recoveryMode=NONE
+      ports:
+        - "8081:8080"  # Spark UI
+        - "7077:7077"  # Spark master
+      volumes:
+        - ./consumer/target:/opt/spark-apps
+        - spark-checkpoints:/tmp/spark-checkpoint
+      networks:
+        - citystream
+
+  spark-worker:
+      image: apache/spark:3.4.1
+      container_name: citystream-spark-worker
+      hostname: spark-worker
+      command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+      depends_on:
+        - spark-master
+      environment:
+        - SPARK_MODE=worker
+        - SPARK_MASTER_URL=spark://spark-master:7077
+        - SPARK_WORKER_MEMORY=1G
+        - SPARK_WORKER_CORES=1
+        - SPARK_RPC_AUTHENTICATION_ENABLED=no
+        - SPARK_RPC_ENCRYPTION_ENABLED=no
+        - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
+        - SPARK_SSL_ENABLED=no
+      volumes:
+        - spark-checkpoints:/tmp/spark-checkpoint
+      networks:
+        - citystream
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: citystream-api
+    environment:
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      SERVER_PORT: 8082
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - citystream
+
+networks:
+  citystream:
+    driver: bridge
+
+volumes:
+  spark-checkpoints:
+    driver: local
