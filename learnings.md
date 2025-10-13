@@ -580,3 +580,178 @@ docker-compose down -v
 ---
 
 **Instance Type**: t2.large (8GB RAM minimum recommended)
+
+## Complete Deployment Guide
+
+### Prerequisites
+
+1. **Local Machine**:
+   - Java 17 or higher
+   - Maven 3.8+
+   - Docker Desktop (for building images)
+   - AWS CLI configured
+
+2. **AWS Account**:
+   - IAM user with DynamoDB permissions
+   - Access key and secret key
+   - EC2 instance (t2.large or larger)
+   - Security group with ports: 22, 8080, 8081, 8082, 9092, 2181
+
+### Step 1: Setup DynamoDB Tables
+
+```bash
+# Run from local machine
+cd citystream-aws
+chmod +x setup-dynamodb.sh
+./setup-dynamodb.sh
+```
+
+This creates three tables:
+- citystream-raw-events
+- citystream-aggregations
+- citystream-alerts
+
+Verify:
+```bash
+aws dynamodb list-tables --region us-east-2
+```
+
+### Step 2: Build JARs
+
+```bash
+# Build all modules
+mvn clean package
+
+# Verify JARs exist
+ls -lh producer/target/producer-*.jar
+ls -lh consumer/target/consumer-*.jar
+ls -lh api/target/api-*.jar
+```
+
+### Step 3: Launch EC2 Instance
+
+1. Launch Ubuntu/Amazon Linux 2023 instance (t2.large)
+2. Configure security group
+3. Install Docker and Docker Compose
+4. Create directory structure
+
+```bash
+# SSH to EC2 and setup
+ssh -i ~/.ssh/citystream-deployment-key.pem ec2-user@<EC2_IP>
+
+# Install Docker
+sudo yum update -y
+sudo yum install docker -y
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -a -G docker ec2-user
+
+# Install Docker Compose
+sudo curl -L \"https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)\" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Logout and login again for group changes
+exit
+```
+
+### Step 4: Deploy Application Files
+
+```bash
+# From local machine
+EC2_IP=\"<your-ec2-ip>\"
+SSH_KEY=\"~/.ssh/citystream-deployment-key.pem\"
+
+# Create directory structure
+ssh -i $SSH_KEY ec2-user@$EC2_IP << 'EOF'
+mkdir -p ~/citystream/{producer,consumer,api}/target
+mkdir -p ~/citystream/jars
+EOF
+
+# Upload JARs
+scp -i $SSH_KEY producer/target/producer-*.jar ec2-user@$EC2_IP:~/citystream/producer/target/
+scp -i $SSH_KEY consumer/target/consumer-*.jar ec2-user@$EC2_IP:~/citystream/consumer/target/
+scp -i $SSH_KEY api/target/api-*.jar ec2-user@$EC2_IP:~/citystream/api/target/
+
+# Upload docker-compose.yml
+scp -i $SSH_KEY docker-compose.yml ec2-user@$EC2_IP:~/citystream/
+```
+
+### Step 5: Start Services
+
+```bash
+# SSH to EC2
+ssh -i ~/.ssh/citystream-deployment-key.pem ec2-user@$EC2_IP
+cd ~/citystream
+
+# Start infrastructure services
+docker-compose up -d zookeeper kafka spark-master spark-worker
+
+# Wait 30 seconds for services to initialize
+sleep 30
+
+# Check status
+docker-compose ps
+
+# Start producer and API
+docker-compose up -d producer api
+
+# Verify services are healthy
+docker-compose ps
+docker logs citystream-producer --tail 20
+docker logs citystream-api --tail 20
+```
+
+### Step 6: Submit Spark Job
+
+```bash
+# Create submission script
+cat > submit_spark_job.sh << 'EOF'
+#!/bin/bash
+
+echo \"Stopping any existing Spark jobs...\"
+docker exec citystream-spark-master pkill -f SparkDynamoDBConsumer || true
+sleep 5
+
+echo \"Creating checkpoint directory...\"
+docker exec -u root citystream-spark-master mkdir -p /tmp/spark-checkpoint
+docker exec -u root citystream-spark-master chown -R spark:spark /tmp/spark-checkpoint
+docker exec -u root citystream-spark-master chmod -R 777 /tmp/spark-checkpoint
+
+echo \"Submitting Spark job with AWS credentials...\"
+docker exec -e AWS_REGION=us-east-2 \\
+  -e AWS_ACCESS_KEY_ID=<YOUR_ACCESS_KEY> \\
+  -e AWS_SECRET_ACCESS_KEY=<YOUR_SECRET_KEY> \\
+  citystream-spark-master \\
+  /opt/spark/bin/spark-submit \\
+    --master spark://spark-master:7077 \\
+    --deploy-mode client \\
+    --driver-memory 1g \\
+    --executor-memory 1g \\
+    --conf spark.executor.cores=1 \\
+    --conf spark.executor.extraJavaOptions=\"-Daws.region=us-east-2\" \\
+    --conf spark.driver.extraJavaOptions=\"-Daws.region=us-east-2\" \\
+    --conf spark.executorEnv.AWS_REGION=us-east-2 \\
+    --conf spark.executorEnv.AWS_ACCESS_KEY_ID=<YOUR_ACCESS_KEY> \\
+    --conf spark.executorEnv.AWS_SECRET_ACCESS_KEY=<YOUR_SECRET_KEY> \\
+    --class com.citystream.consumer.SparkDynamoDBConsumer \\
+    /opt/spark-apps/consumer-1.0.0.jar
+
+echo \"Spark job submitted successfully!\"
+EOF
+
+chmod +x submit_spark_job.sh
+
+# Run it
+./submit_spark_job.sh
+```
+
+### Step 7: Verify Data Flow
+
+```bash
+# Wait 60 seconds for data to flow
+sleep 60
+
+# Check DynamoDB tables
+aws dynamodb scan --table-name citystream-raw-events --region us-east-2 --select COUNT
+aws dynamodb scan --table-name citystream-alerts --region us-east-2 --select COUNT
+aws dynamodb scan --table-name citystream-aggregations --region us-east-2 --select COUNT
