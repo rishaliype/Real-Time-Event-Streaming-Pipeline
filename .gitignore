@@ -43,3 +43,8 @@ config
 derby.log
 metastore_db/
 spark-warehouse/
+
+# Learning materials (personal notes)
+learnings.md
+*_TAKEAWAYS.md
+*_NOTES.md

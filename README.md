@@ -1,224 +1,257 @@
-# CityStream - Real-Time Event Processing Pipeline
+# Real-Time Event Streaming Pipeline
 
-A production-grade distributed stream processing system built with Kafka, Spark Structured Streaming, and AWS DynamoDB.
+> **Production-ready distributed streaming platform** processing real-time city infrastructure events using Kafka, Spark Structured Streaming, and AWS services (EC2 + DynamoDB). Designed for scalable, fault-tolerant cloud deployment.
 
-## 🎯 Project Overview
+[![Tech Stack](https://img.shields.io/badge/Kafka-Stream_Processing-black?logo=apache-kafka)](https://kafka.apache.org/)
+[![Spark](https://img.shields.io/badge/Spark-3.4.1-orange?logo=apache-spark)](https://spark.apache.org/)
+[![AWS](https://img.shields.io/badge/AWS-DynamoDB_EC2-orange?logo=amazon-aws)](https://aws.amazon.com/)
+[![Java](https://img.shields.io/badge/Java-17-blue?logo=openjdk)](https://openjdk.org/)
 
-CityStream simulates and processes real-time city events (traffic, weather, incidents, construction) through a complete data engineering pipeline, demonstrating skills in:
-- Distributed stream processing
-- Message queue architecture
-- NoSQL database design
-- REST API development
-- Docker orchestration
-- AWS cloud integration
+[View Kubernetes Version →](https://github.com/rishaliype/Kubernetes-Native-Streaming-Platform-with-Observability)
 
-## 🏗️ Architecture
+---
 
-```
-Producer (Spring Boot)     → Generates events every 5s
-        ↓
-Kafka + Zookeeper         → Message buffering & streaming
-        ↓
-Spark Streaming           → 4 concurrent queries processing
-        ↓
-DynamoDB (3 tables)       → Storage: raw events, aggregations, alerts
-        ↓
-REST API (Spring Boot)    → 7 endpoints for data access
-```
+## What This Demonstrates
 
-## 🛠️ Tech Stack
+**Distributed Systems:** Multi-service architecture with Kafka message queuing, Spark stream processing, and AWS cloud persistence
 
-| Component | Technology | Version |
-|-----------|-----------|---------|
-| Stream Processing | Apache Spark | 3.4.1 |
-| Message Queue | Apache Kafka | 7.5.0 |
-| Database | AWS DynamoDB | N/A |
-| Producer & API | Spring Boot | 3.1.x |
-| Language | Java | 17 |
-| Build Tool | Maven | 3.8+ |
-| Container | Docker + Compose | 24.x |
-| Cloud | AWS EC2 | t2.large |
+**Real-Time Processing:** Sub-second latency event processing with windowed aggregations and stateful computations
 
-## 📊 Data Flow
+**Production Practices:** Containerization, health checks, monitoring endpoints, error handling, and cloud deployment
 
-1. **Event Generation**: Producer creates events every 5 seconds
-2. **Kafka Buffering**: Events published to `city-events` topic
-3. **Spark Processing**: 4 concurrent streaming queries:
-   - Raw events writer
-   - 5-minute windowed aggregations
-   - High-severity alerts filter
-   - Console monitoring output
-4. **DynamoDB Storage**: Data persisted in 3 optimized tables
-5. **REST API**: HTTP endpoints expose data for consumption
+---
+
+### Why the AWS Version?
+This deployment focuses on cloud-native integration with AWS services — leveraging EC2 for compute scalability and DynamoDB for managed NoSQL storage. It complements the Kubernetes-native variant by demonstrating AWS-hosted deployment patterns.
+
+## System Architecture
+
+┌──────────────┐      ┌─────────┐      ┌────────────────┐      ┌──────────┐
+│   Producer   │─────▶│  Kafka  │─────▶│ Spark Cluster  │─────▶│ DynamoDB │
+│ (Spring Boot)│      │ (EC2)   │      │   (EC2)        │      │  (AWS)   │
+└──────────────┘      │ Message │      └────────────────┘      └──────────┘
+                      └─────────┘                                     │
+                                                                      ▼
+                                                              ┌─────────────┐
+                                                              │  REST API   │
+                                                              │ (Spring Boot│
+                                                              │   on EC2)   │
+                                                              └─────────────┘
+
+
+**Pipeline Flow:** Events generated every 5s → Kafka buffering → Spark processes 4 concurrent queries → Data stored in 3 DynamoDB tables → REST API exposes results
+
+---
+
+## Key Features
+
+### Stream Processing
+- **Windowed Aggregations:** 5-minute tumbling windows with event counts and severity tracking
+- **Real-time Alerts:** Dedicated stream filtering high/critical severity events  
+- **Watermarking:** 10-minute threshold for handling late-arriving data
+- **Checkpointing:** Fault-tolerant state management for recovery
+
+### Data Storage
+- **Optimized Schema:** Composite keys (partition + sort) for efficient queries
+- **Multiple Tables:** Separate tables for raw events, aggregations, and alerts
+- **TTL Management:** Automatic 30-day data expiration
+- **Cost Efficient:** On-demand pricing with ~$1/month DynamoDB costs
+
+## Key Components
+
+### 1. Producer (`citystream-producer`)
+- Generates synthetic city events every 5 seconds
+- Event types: traffic, weather, incident, construction
+- Cities: NYC, LA, Chicago, SF, Boston, Seattle
+- Severity levels: low, medium, high, critical
+- Publishes to Kafka topic `city-events`
+
+### 2. Kafka Cluster
+- **Zookeeper**: Manages Kafka cluster coordination
+- **Kafka Broker**: Single broker setup for demo
+- Topic: `city-events` (auto-created)
+- Retention: 24 hours
+
+### 3. Spark Consumer (`citystream-consumer`)
+Processes four streaming queries simultaneously:
+
+#### Query 1: Raw Events Storage
+- Reads from Kafka, parses JSON events
+- Writes to `citystream-raw-events` table
+- Adds TTL (30 days) for automatic cleanup
+- Keys: `event_id` (partition), `timestamp` (sort)
+
+#### Query 2: Windowed Aggregations
+- 5-minute tumbling windows
+- Groups by: window, city, event_type
+- Aggregates: count, severity list
+- Writes to `citystream-aggregations` table
+- Uses watermark (10 minutes) for late data handling
+
+#### Query 3: High-Severity Alerts
+- Filters events with severity = "high" or "critical"
+- Writes to `citystream-alerts` table
+- Keys: `city` (partition), `timestamp` (sort)
+- Real-time alerting for critical situations
+
+#### Query 4: Console Monitoring
+- Live dashboard in Spark console
+- Shows aggregated counts by city/type/severity
+
+### 4. DynamoDB Tables
+
+#### `citystream-raw-events`
+- **Partition Key**: `event_id` (String)
+- **Sort Key**: `timestamp` (String)
+- **TTL**: 30 days
+- **Purpose**: Store all raw events
+
+#### `citystream-aggregations`
+- **Partition Key**: `partition_key` (String) - format: `city#event_type#window_start`
+- **Attributes**: window_start, window_end, event_count, severities, city, event_type
+- **Purpose**: Pre-computed analytics
+
+#### `citystream-alerts`
+- **Partition Key**: `city` (String)
+- **Sort Key**: `timestamp` (String)
+- **Purpose**: Quick access to high-priority alerts by city
+
+### 5. REST API (`citystream-api`)
+
+Endpoints:
+- `GET /api/v1/health` - Health check
+- `GET /api/v1/events/{city}?limit=20` - Recent events for a city
+- `GET /api/v1/summary/{city}` - Aggregated summary
+- `GET /api/v1/alerts?city={city}&hours=24` - Recent alerts
+- `GET /api/v1/cities` - List all cities with event counts
+- `GET /api/v1/aggregations?city={city}&event_type={type}&limit=10` - Windowed aggregations
+- `GET /api/v1/stats` - Overall statistics
+---
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Stream Processing** | Apache Spark 3.4.1 | Real-time data transformations |
+| **Message Queue** | Kafka 7.5.0 | Event buffering & ordering |
+| **NoSQL Database** | AWS DynamoDB | Low-latency storage |
+| **Application** | Spring Boot 3.x | Event generation & API |
+| **Infrastructure** | Docker Compose | Multi-container orchestration |
+| **Cloud** | AWS EC2 (c7i-flex.large) | Production deployment |
+
+---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - AWS account with DynamoDB access
-- Java 17+, Maven 3.8+
 - Docker Desktop
-- AWS CLI configured
+- Java 17+, Maven 3.8+
 
-### Deploy in 5 Steps
+### Deploy in 5 Commands
 
 ```bash
 # 1. Create DynamoDB tables
 ./setup-dynamodb.sh
 
-# 2. Build JARs
+# 2. Build applications
 mvn clean package
 
-# 3. Launch EC2 and upload files (see DEPLOYMENT.md)
-
-# 4. Start services
+# 3. Start infrastructure
 docker-compose up -d
 
-# 5. Submit Spark job
-./submit_spark_job.sh
+# 4. Submit Spark job
+docker exec citystream-spark-master /opt/spark/bin/spark-submit \
+  --class com.citystream.consumer.SparkDynamoDBConsumer \
+  --master local[4] \
+  /opt/spark-work-dir/consumer-1.0.0.jar
 
-# Verify
+# 5. Verify pipeline
 curl http://localhost:8082/api/v1/stats
 ```
 
-## 📈 Results After 1 Hour
+---
+## Operational Patterns
 
-- **Raw Events**: 720+ items (1 per 5 seconds)
-- **Alerts**: 290+ high/critical severity events
-- **Aggregations**: 70+ windowed summaries
-- **API Response Time**: < 100ms average
-- **Spark Processing**: < 1 second per micro-batch
+### 1. Stream Processing Patterns
+- **Tumbling windows**: Fixed-size, non-overlapping time windows
+- **Watermarking**: Handling late-arriving data
+- **Stateful streaming**: Maintaining aggregations across micro-batches
+- **Fault tolerance**: Checkpointing for exactly-once processing
 
-## 🔧 Key Features
+### 2. Kafka Integration
+- Producer with proper serialization
+- Consumer group management
+- Topic partitioning strategies
+- Offset management
 
-### Stream Processing
-- ✅ Real-time event processing with Spark Structured Streaming
-- ✅ Windowed aggregations (5-minute tumbling windows)
-- ✅ Watermarking for late data handling (10-minute threshold)
-- ✅ Stateful operations with checkpointing
-- ✅ Multiple concurrent queries in single application
+### 3. Spark Structured Streaming
+- DataFrame/Dataset API for streaming
+- ForeachWriter for custom sinks
+- Multiple concurrent queries
+- Output modes: append, update, complete
 
-### Data Storage
-- ✅ Optimized DynamoDB schema design
-- ✅ Composite keys for efficient querying
-- ✅ TTL for automatic data expiration (30 days)
-- ✅ Three specialized tables for different access patterns
+### 4. DynamoDB Design
+- Choosing partition and sort keys
+- Query patterns (scan vs query vs get-item)
+- TTL for automatic data expiration
+- Efficient data modeling for time-series
 
-### REST API
-- ✅ 7 RESTful endpoints
-- ✅ Health checks and monitoring
-- ✅ City-based filtering
-- ✅ Time-range queries
-- ✅ Pre-computed aggregations
+### 5. Docker Orchestration
+- Multi-container applications
+- Service dependencies
+- Health checks
+- Volume management
+- Network configuration
 
-### DevOps
-- ✅ Docker Compose orchestration
-- ✅ Multi-container application
-- ✅ Health checks for all services
-- ✅ AWS cloud deployment
-- ✅ Monitoring and logging
+### 6. AWS Deployment
+- EC2 instance sizing for Spark workloads
+- Security group configuration
+- IAM roles and permissions
+- Cross-service integration (EC2 + DynamoDB)
 
-## 📝 API Endpoints
+---
 
-| Endpoint | Description | Example |
-|----------|-------------|---------|
-| `GET /api/v1/health` | Health check | `curl /api/v1/health` |
-| `GET /api/v1/stats` | Overall statistics | `curl /api/v1/stats` |
-| `GET /api/v1/cities` | List all cities | `curl /api/v1/cities` |
-| `GET /api/v1/events/{city}` | Events by city | `curl /api/v1/events/NYC?limit=5` |
-| `GET /api/v1/summary/{city}` | City summary | `curl /api/v1/summary/Boston` |
-| `GET /api/v1/alerts` | High-severity alerts | `curl /api/v1/alerts?hours=24` |
-| `GET /api/v1/aggregations` | Windowed data | `curl /api/v1/aggregations?city=NYC&eventType=traffic` |
-
-## 🎓 Key Learnings
-
-### Problem-Solving Highlights
-
-**1. DynamoDB Schema Mismatch**
-- **Problem**: ValidationException - Missing keys
-- **Solution**: Separated composite keys (partition + sort) into individual fields
-- **Learning**: NoSQL schema design must match query patterns
-
-**2. Null Primary Keys**
-- **Problem**: `unix_timestamp()` returning null
-- **Solution**: Used timestamp string directly instead of conversion
-- **Learning**: Always validate primary key fields are non-null
-
-**3. Credentials Propagation**
-- **Problem**: Spark executors couldn't access AWS
-- **Solution**: Passed credentials via Spark configuration to executors
-- **Learning**: Distributed systems require explicit credential propagation
-
-**4. Checkpoint Permissions**
-- **Problem**: Spark couldn't create checkpoint directories
-- **Solution**: Created directories with proper ownership before job submission
-- **Learning**: File permissions critical in containerized environments
-
-**5. API Parameter Convention**
-- **Problem**: HTTP 400 errors on aggregations endpoint
-- **Solution**: Used camelCase (`eventType`) instead of snake_case
-- **Learning**: Maintain consistent naming conventions across stack
-
-## 💰 Cost Estimate
-
-**Monthly AWS Costs (us-east-2)**:
-- EC2 t2.large: ~$67/month (24/7)
-- DynamoDB: ~$1/month (on-demand, low volume)
-- Data Transfer: < $1/month
-- **Total**: ~$68/month
-
-**Cost Optimization**:
-- Use Spot instances: Save 70%
-- Stop when not in use: Pay only runtime
-- Reserved instances: Save 40% for 1-year
-
-## 🧪 Testing
+## Testing
 
 ```bash
-# Test producer
+# Verify producer is generating events
 curl http://localhost:8080/metrics
 
-# Test Kafka
+# Check Kafka topic
 docker exec citystream-kafka kafka-console-consumer \
   --topic city-events --bootstrap-server localhost:9092 --max-messages 5
 
-# Test Spark console output
-docker logs citystream-spark-master --tail 50
+# Query DynamoDB
+aws dynamodb scan --table-name citystream-raw-events --max-items 3
 
-# Test DynamoDB
-aws dynamodb scan --table-name citystream-raw-events --region us-east-2 --max-items 3
-
-# Test API
-./test-api.sh
+# Test REST API
+curl http://localhost:8082/api/v1/events/NYC?limit=5
 ```
 
-## 🔍 Monitoring
+---
 
-```bash
-# View all service logs
-docker-compose logs -f
+## Skills Demonstrated
 
-# Monitor Spark UI
-open http://<EC2_IP>:8081
+**Distributed Stream Processing** - Kafka + Spark Structured Streaming  
+**NoSQL Database Design** - DynamoDB schema optimization  
+**REST API Development** - Spring Boot with 7 production endpoints  
+**Docker Orchestration** - Multi-container application with health checks  
+**AWS Cloud Services** - EC2, DynamoDB, IAM, CloudWatch  
+**Real-time Windowing** - Tumbling windows with watermarking  
+**Fault Tolerance** - Checkpointing and stateful recovery  
+**Production Deployment** - Cloud infrastructure
 
-# Check DynamoDB metrics
-aws cloudwatch get-metric-statistics \
-  --namespace AWS/DynamoDB \
-  --metric-name ConsumedReadCapacityUnits \
-  --dimensions Name=TableName,Value=citystream-raw-events \
-  --start-time 2025-10-13T00:00:00Z \
-  --end-time 2025-10-13T23:59:59Z \
-  --period 3600 \
-  --statistics Sum
-```
+---
 
-## 🧹 Cleanup
+## Related Projects
 
-```bash
-# Stop all services
-docker-compose down -v
+- **[Kubernetes-Native Streaming Platform](https://github.com/rishaliype/Kubernetes-Native-Streaming-Platform-with-Observability)** - Same pipeline deployed on Kubernetes with Prometheus monitoring
 
-# Delete DynamoDB tables
-./cleanup-aws.sh
+---
 
-# Terminate EC2 instance
-# (Go to AWS Console → EC2 → Terminate)
+This project demonstrates production-ready patterns for stream processing, cloud deployment, and NoSQL at scale.
+
+---
+
+**Built with:** Java 17 • Spring Boot • Apache Kafka • Apache Spark • AWS DynamoDB • Docker
