@@ -24,8 +24,11 @@
 ### Why the AWS Version?
 This deployment focuses on cloud-native integration with AWS services — leveraging EC2 for compute scalability and DynamoDB for managed NoSQL storage. It complements the Kubernetes-native variant by demonstrating AWS-hosted deployment patterns.
 
+---
+
 ## System Architecture
 
+```
 ┌──────────────┐      ┌─────────┐      ┌────────────────┐      ┌──────────┐
 │   Producer   │─────▶│  Kafka  │─────▶│ Spark Cluster  │─────▶│ DynamoDB │
 │ (Spring Boot)│      │ (EC2)   │      │   (EC2)        │      │  (AWS)   │
@@ -37,8 +40,7 @@ This deployment focuses on cloud-native integration with AWS services — levera
                                                               │ (Spring Boot│
                                                               │   on EC2)   │
                                                               └─────────────┘
-
-
+```
 **Pipeline Flow:** Events generated every 5s → Kafka buffering → Spark processes 4 concurrent queries → Data stored in 3 DynamoDB tables → REST API exposes results
 
 ---
