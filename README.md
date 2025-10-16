@@ -130,6 +130,54 @@ Endpoints:
 - `GET /api/v1/stats` - Overall statistics
 ---
 
+## Screenshots & Pipeline in Action
+
+### AWS Infrastructure Configuration
+![AWS Security Groups](images/01-aws-security-groups.png)
+*Security group inbound rules for the citystream-sg, showing 9 permission entries configured for the streaming pipeline. Port access includes Spark Master (7077), Spark UI (8080, 8081), REST API (8082), Kafka (9092, 9093), Zookeeper (2181, 3888), Prometheus (9090), and SSH (22). Rules demonstrate proper network isolation with controlled access from specific IP ranges and 0.0.0.0/0 for public services.*
+
+![EC2 Instance Running](images/02-ec2-instance-running.png)
+*Production EC2 instance (citystream-working) running on c7i-flex.large in us-east-2c availability zone. Instance shows Running state with 3/3 status checks passed, demonstrating healthy compute infrastructure for the distributed streaming platform. Details include instance ID, reservation, and VPC configuration for cloud-native deployment.*
+
+### Pipeline Deployment & Service Health
+![Docker Compose Services](images/03-docker-compose-services.png)
+*Docker Compose orchestration showing all seven services in healthy state: API, Kafka, Producer, Spark Master/Worker, and Zookeeper. Two snapshots (38 seconds and 1 minute uptime) demonstrate service stability and successful startup sequence. Port mappings visible for each service confirm proper container networking and external accessibility.*
+
+![EC2 SSH Deployment](images/04-ec2-ssh-deployment.png)
+*Live SSH session on Amazon Linux 2023 EC2 instance showing successful docker-compose deployment. Terminal displays all containers running with their respective images, commands, and port configurations. The citystream directory structure and docker-compose ps output verify complete service orchestration on the cloud environment.*
+
+### Event Generation & Kafka Message Queue
+![Producer Event Logs](images/05-producer-event-logs.png)
+*Spring Boot producer logs showing scheduled event generation at 5-second intervals. Each log entry displays event creation with randomized attributes (city, event_type, severity) followed by Kafka send confirmation with partition assignment and latency metrics (3-11ms range). Sample events include traffic, weather, incidents, and construction across NYC, LA, SF, Boston, Chicago, and Seattle.*
+
+![Kafka Console Consumer](images/06-kafka-consumer-messages.png)
+*Kafka console consumer displaying real-time message flow from the city-events topic. Shows JSON event payloads with complete schema (event_id, timestamp, city, event_type, severity, description) streaming from the producer. Five sample events demonstrate diverse event types across multiple cities with varying severity levels, confirming successful producer-to-Kafka connectivity.*
+
+### Stream Processing & Windowing
+![Spark Console Aggregations](images/07-spark-console-aggregations.png)
+*Spark Structured Streaming console output displaying real-time micro-batch processing (Batches 68-73). Table format shows aggregated event counts grouped by city, event_type, and severity. Data demonstrates stateful aggregations across multiple cities with event counts ranging from 1-4 per group, confirming successful stream processing and query execution.*
+
+![Spark Windowed Output](images/08-spark-windowed-output.png)
+*5-minute tumbling window aggregations from Spark streaming (Batches 70-74). Results show windowed event counts grouped by city, event_type, and severity with clear time boundaries. Demonstrates advanced streaming features including watermarking for late data handling and stateful computations maintaining counts across micro-batches.*
+
+### REST API Demonstrations
+![NYC Traffic Aggregations](images/09-api-nyc-aggregations.png)
+*REST API /aggregations endpoint returning NYC traffic event windowed analytics (limit 5). JSON response includes partition keys, window start/end times, event counts, city, event_type, and severity arrays. Data shows multiple 5-minute windows with event counts of 1-2 and severity levels (medium, high), demonstrating pre-computed statistics from DynamoDB.*
+
+![LA City Summary](images/10-api-la-summary.png)
+*City summary endpoint for Los Angeles showing comprehensive event statistics. Response includes total_events (111), generated_at timestamp, and event_type_breakdown with counts: weather (30), construction (30), incident (21), traffic (30). Demonstrates multi-table aggregation queries providing operational dashboard insights.*
+
+![SF Events Query](images/11-api-sf-events.png)
+*San Francisco recent events endpoint (limit 3) returning raw event data from DynamoDB. JSON response shows three events with complete details including severity, processing_time, event_type, event_id, city, description, ttl, and timestamp. Events include high-severity incident and traffic alerts, demonstrating efficient partition key queries.*
+
+![Chicago Alerts](images/12-api-chicago-alerts.png)
+*High-severity alerts endpoint for Chicago with 2-hour time filter. Response shows multiple critical and high priority alerts including traffic congestion, construction work, and emergency incidents. Each alert includes severity, processing_time, event_type, event_id, city, description, and timestamp, demonstrating the dedicated alerts stream and efficient time-range queries.*
+
+![All Alerts Overview](images/13-api-all-alerts.png)
+*System-wide alerts endpoint aggregating critical and high-priority events across all cities (Seattle, Chicago). JSON response shows multiple construction, incident, and traffic alerts with timestamps. Demonstrates cross-partition scanning capabilities and real-time alerting infrastructure for operational incident response and monitoring.*
+
+---
+
 ## Tech Stack
 
 | Layer | Technology | Purpose |
